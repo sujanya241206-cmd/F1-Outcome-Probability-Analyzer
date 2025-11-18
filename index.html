@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Outcome Probability Dashboard (2025)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        /* Base Styles, Overridden by JS/data-theme */
+        body {
+            font-family: 'Inter', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        /* --- DARK MODE (Default) --- */
+        body[data-theme="dark"] {
+            background-color: #0d0d10;
+            color: #d1d5db; /* Light gray text */
+        }
+        body[data-theme="dark"] .data-card {
+            background-color: #1e1e24;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+        body[data-theme="dark"] .data-table-container th {
+            background-color: #2a2a33;
+            color: #ff6600;
+        }
+        body[data-theme="dark"] .data-table-container tr {
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        body[data-theme="dark"] .data-table-container tr:hover {
+            background-color: #24242e;
+        }
+        body[data-theme="dark"] .chart-container {
+            background-color: #101013;
+        }
+
+        /* --- LIGHT MODE --- */
+        body[data-theme="light"] {
+            background-color: #f3f4f6;
+            color: #1f2937; /* Dark gray text */
+        }
+        body[data-theme="light"] .data-card {
+            background-color: #ffffff;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        body[data-theme="light"] .data-table-container th {
+            background-color: #e5e7eb;
+            color: #e10600;
+        }
+        body[data-theme="light"] .data-table-container tr {
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        body[data-theme="light"] .data-table-container tr:hover {
+            background-color: #f9fafb;
+        }
+        body[data-theme="light"] .chart-container {
+            background-color: #ffffff;
+            border: 1px solid #e5e7eb;
+        }
+        body[data-theme="light"] th, body[data-theme="light"] td {
+            border-bottom: 1px solid #d1d5db;
+        }
+        /* Highlight specific for Light mode */
+        body[data-theme="light"] .data-table-container tr.highlighted {
+            background-color: #fcebeb !important; /* Very light red */
+            box-shadow: 0 0 0 2px #e10600 inset;
+        }
+
+        /* Common Styles */
+        .header-bg {
+            background-image: linear-gradient(135deg, #e10600 0%, #ff6600 100%);
+            color: white;
+        }
+        .data-card {
+            border-radius: 12px;
+            padding: 20px;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        .data-table-container {
+            overflow-x: auto;
+            max-width: 100%;
+        }
+        th, td {
+            min-width: 100px;
+            padding: 12px 16px;
+            text-align: left;
+        }
+        /* Highlight specific for Dark mode */
+        body[data-theme="dark"] .data-table-container tr.highlighted {
+            background-color: #451b1a !important; 
+            box-shadow: 0 0 0 2px #e10600 inset;
+        }
+        .chart-container {
+            width: 100%;
+            height: 350px;
+            border-radius: 8px;
+            padding: 10px;
+            box-sizing: border-box;
+            transition: background-color 0.3s;
+        }
+        .chart-container svg {
+            width: 100%;
+            height: 100%;
+        }
+        /* D3 styles rely on JS for dynamic color based on theme, but these base classes help */
+        .axis-label {
+            font-size: 10px;
+            font-family: 'Inter', sans-serif;
+        }
+        .axis-title {
+            font-size: 12px;
+            font-weight: 500;
+            text-anchor: middle;
+        }
+        .tooltip {
+            position: absolute;
+            border: 1px solid;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 10;
+        }
+
+        /* Fraction Styling */
+        .fraction {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            vertical-align: middle;
+            margin: 0 4px;
+        }
+        .fraction-bar {
+            width: 100%;
+            height: 1px;
+            background-color: currentColor;
+        }
+        .numerator, .denominator {
+            padding: 0 2px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="header-bg shadow-xl">
+        <div class="max-w-7xl mx-auto p-6 flex flex-col sm:flex-row justify-between items-center rounded-b-xl">
+            <h1 class="text-3xl font-extrabold tracking-tight">F1 2025 Performance Analyzer (Post-Race Update)</h1>
+            
+            <!-- Link and Theme Switcher Container -->
+            <div class="mt-4 sm:mt-0 flex space-x-4">
+                
+                <!-- F1 Website Link Button -->
+                <a href="https://www.formula1.com/" target="_blank" id="f1-link-button" class="px-4 py-2 rounded-full shadow-md font-semibold transition duration-300 flex items-center bg-gray-900 text-white hover:bg-red-800">
+                    <span class="mr-2">🏁</span>
+                    <span class="hidden sm:inline">Official F1 Site</span>
+                    <span class="inline sm:hidden">F1</span>
+                </a>
+
+                <!-- Theme Switcher -->
+                <button id="theme-toggle" class="px-4 py-2 rounded-full shadow-md font-semibold transition duration-300 flex items-center">
+                    <span id="theme-icon" class="mr-2"></span>
+                    <span id="theme-text"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+
+        <!-- Interactivity Tip -->
+        <div id="tip" class="bg-yellow-900 bg-opacity-80 border-2 border-yellow-500 p-4 rounded-xl text-lg text-yellow-100 mb-6 shadow-xl">
+            <strong class="text-xl text-white">💡 TIP:</strong> Click on any driver row in the table below to <span class="font-extrabold text-white">HIGHLIGHT</span> their performance across all four charts! Click again to unselect.
+        </div>
+
+        <!-- Core Metrics Table -->
+        <section class="mb-10">
+            <h2 class="text-2xl font-bold mb-4 border-b-2 border-red-600 pb-2">🏎️ Core Driver Metrics & Probability (26 Races)</h2>
+            <div class="data-card">
+                <div class="data-table-container">
+                    <table id="metrics-table" class="w-full text-sm rounded-lg border-collapse">
+                        <thead>
+                            <tr>
+                                <th>Driver</th>
+                                <th>Team</th>
+                                <th>Wins</th>
+                                <th>Podiums</th>
+                                <th>DNF %</th>
+                                <th>Qualifying Score</th>
+                                <th>Race Pace Score</th>
+                                <th class="text-red-500">Win Probability (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Data will be inserted here by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Textual Analysis -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+            <!-- Top 5 Analysis -->
+            <div class="lg:col-span-1 data-card">
+                <h3 class="text-xl font-bold mb-3 border-b border-gray-600 pb-2 text-yellow-500">🏆 Top 5 Drivers (Win Rate)</h3>
+                <ol id="top-5-list" class="list-decimal list-inside space-y-2 pl-4">
+                    <!-- Top 5 list will be inserted here -->
+                </ol>
+            </div>
+
+            <!-- Probability Formulas Section - NOW USING HTML/CSS FOR CLEAN FRACTIONS -->
+            <div class="lg:col-span-2 data-card">
+                <h3 class="text-xl font-bold mb-3 border-b border-gray-600 pb-2 text-sky-400">📈 Key Metric Formulas</h3>
+                <p class="text-gray-400 mb-4 text-sm">The core performance rates are calculated using standard ratios, while scores reflect position scaling.</p>
+                
+                <div class="flex flex-col space-y-4 text-sm">
+                    <!-- Formula 1: Win Rate -->
+                    <div class="flex items-center space-x-2 font-semibold text-red-400">
+                        <span class="whitespace-nowrap">Win Rate (%) =</span>
+                        <div class="fraction min-w-16">
+                            <span class="numerator">Total Wins</span>
+                            <div class="fraction-bar"></div>
+                            <span class="denominator">Total Races</span>
+                        </div>
+                        <span class="whitespace-nowrap"> x 100</span>
+                    </div>
+
+                    <!-- Formula 2: Podium Rate -->
+                    <div class="flex items-center space-x-2 font-semibold text-orange-400">
+                        <span class="whitespace-nowrap">Podium Rate (%) =</span>
+                        <div class="fraction min-w-16">
+                            <span class="numerator">Total Podiums</span>
+                            <div class="fraction-bar"></div>
+                            <span class="denominator">Total Races</span>
+                        </div>
+                        <span class="whitespace-nowrap"> x 100</span>
+                    </div>
+
+                    <!-- Formula 3: DNF Rate -->
+                    <div class="flex items-center space-x-2 font-semibold text-gray-400">
+                        <span class="whitespace-nowrap">DNF Rate (%) =</span>
+                        <div class="fraction min-w-16">
+                            <span class="numerator">Total DNFs</span>
+                            <div class="fraction-bar"></div>
+                            <span class="denominator">Total Races</span>
+                        </div>
+                        <span class="whitespace-nowrap"> x 100</span>
+                    </div>
+
+                    <!-- Formula 4: Qualifying Score -->
+                    <div class="flex items-center space-x-2 font-semibold text-blue-400">
+                        <span class="whitespace-nowrap">Qualifying Score (QS) $\approx$</span>
+                        <div class="fraction min-w-16">
+                            <span class="numerator">(21 - AvgQualiPos)</span>
+                            <div class="fraction-bar"></div>
+                            <span class="denominator">20</span>
+                        </div>
+                        <span class="whitespace-nowrap"> x 100</span>
+                    </div>
+
+                    <!-- Formula 5: Race Pace Score -->
+                    <div class="flex items-center space-x-2 font-semibold text-green-400">
+                        <span class="whitespace-nowrap">Race Pace Score (RPS) $\approx$</span>
+                        <div class="fraction min-w-16">
+                            <span class="numerator">(21 - AvgRacePos)</span>
+                            <div class="fraction-bar"></div>
+                            <span class="denominator">20</span>
+                        </div>
+                        <span class="whitespace-nowrap"> x 100</span>
+                    </div>
+
+
+                    <!-- Formula 6: Final Probability - The core weighted average -->
+                    <p class="text-base font-extrabold bg-red-800 p-2 rounded-lg mt-4" style="color: white;">
+                        Win Probability = (0.4 x Win Rate) + (0.3 x Podium Rate) + (0.15 x QS) + (0.15 x RPS)
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Visualization Section (Added ID for scrolling) -->
+        <section id="visualization-section">
+            <h2 class="text-2xl font-bold mb-4 border-b-2 border-red-600 pb-2">🖼️ Data Visualizations</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                
+                <div class="data-card">
+                    <h4 class="text-lg font-semibold mb-2 text-orange-400">1. Driver Win Rate Comparison (All 20)</h4>
+                    <div id="win-rates-chart-container" class="chart-container"></div>
+                </div>
+
+                <div class="data-card">
+                    <h4 class="text-lg font-semibold mb-2 text-orange-400">2. Predicted Win Probabilities (All 20)</h4>
+                    <div id="win-probabilities-chart-container" class="chart-container"></div>
+                </div>
+
+                <div class="data-card">
+                    <h4 class="text-lg font-semibold mb-2 text-orange-400">3. Driver Pace vs. Qualifying (All 20)</h4>
+                    <div id="metric-comparison-chart-container" class="chart-container"></div>
+                </div>
+
+                <div class="data-card">
+                    <h4 class="text-lg font-semibold mb-2 text-orange-400">4. DNF Rate Comparison (All 20)</h4>
+                    <div id="dnf-rates-chart-container" class="chart-container"></div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Tooltip container -->
+    <div id="tooltip" class="tooltip"></div>
+
+    <!-- UPDATED FOOTER -->
+    <footer class="bg-gray-900 text-center text-gray-500 py-4 mt-10">
+        <p class="mb-1">&copy; 2025 F1 Probability Analyzer Team</p>
+        <p class="text-xs">Developed by Sujanya Sailwal, Aditi Sharma & Ruma Devi</p>
+    </footer>
+
+    <script>
+        // =====================================================================
+        // GLOBAL STATE & DATA
+        // =====================================================================
+        let allAnalyzedData = [];
+        let top5DriversData = [];
+        let highlightedDriver = null; // NEW: State for the currently highlighted driver
+        const tooltip = d3.select("#tooltip");
+        
+        // D3 Theme Colors (will be updated by the theme switcher)
+        let themeColors = {};
+
+        // =====================================================================
+        // DATA SETUP AND CALCULATION
+        // =====================================================================
+
+        function createF1Dataset() {
+            // NOTE: This mock dataset represents a real-time data source (like an F1 API)
+            // It provides the base statistics needed for probability calculation.
+            return [
+                { Driver: "Max Verstappen", Team: "Red Bull", Races: 26, Wins: 15, Podiums: 20, DNFs: 0, AvgQualiPos: 1.8, AvgRacePos: 2.0 },
+                { Driver: "Liam Lawson", Team: "Red Bull", Races: 26, Wins: 1, Podiums: 6, DNFs: 1, AvgQualiPos: 6.5, AvgRacePos: 7.2 },
+                { Driver: "Yuki Tsunoda", Team: "Racing Bulls", Races: 26, Wins: 0, Podiums: 4, DNFs: 2, AvgQualiPos: 8.9, AvgRacePos: 9.1 },
+                { Driver: "Charles Leclerc", Team: "Ferrari", Races: 26, Wins: 4, Podiums: 13, DNFs: 0, AvgQualiPos: 3.5, AvgRacePos: 4.0 },
+                { Driver: "Lewis Hamilton", Team: "Ferrari", Races: 26, Wins: 3, Podiums: 12, DNFs: 1, AvgQualiPos: 5.0, AvgRacePos: 5.5 },
+                { Driver: "Lando Norris", Team: "McLaren", Races: 26, Wins: 2, Podiums: 10, DNFs: 0, AvgQualiPos: 4.8, AvgRacePos: 5.0 },
+                { Driver: "Oscar Piastri", Team: "McLaren", Races: 26, Wins: 7, Podiums: 14, DNFs: 0, AvgQualiPos: 3.0, AvgRacePos: 3.0 },
+                { Driver: "George Russell", Team: "Mercedes", Races: 26, Wins: 1, Podiums: 10, DNFs: 1, AvgQualiPos: 7.0, AvgRacePos: 7.5 },
+                { Driver: "Kimi Antonelli", Team: "Mercedes", Races: 26, Wins: 0, Podiums: 5, DNFs: 2, AvgQualiPos: 10.1, AvgRacePos: 11.2 },
+                { Driver: "Fernando Alonso", Team: "Aston Martin", Races: 26, Wins: 0, Podiums: 7, DNFs: 3, AvgQualiPos: 9.5, AvgRacePos: 8.8 },
+                { Driver: "Lance Stroll", Team: "Aston Martin", Races: 26, Wins: 0, Podiums: 4, DNFs: 5, AvgQualiPos: 12.0, AvgRacePos: 10.9 },
+                { Driver: "Pierre Gasly", Team: "Alpine", Races: 26, Wins: 1, Podiums: 7, DNFs: 1, AvgQualiPos: 11.5, AvgRacePos: 9.8 },
+                { Driver: "Franco Colapinto", Team: "Alpine", Races: 26, Wins: 0, Podiums: 4, DNFs: 2, AvgQualiPos: 13.0, AvgRacePos: 12.5 },
+                { Driver: "Oliver Bearman", Team: "Haas", Races: 26, Wins: 0, Podiums: 2, DNFs: 4, AvgQualiPos: 14.5, AvgRacePos: 13.8 },
+                { Driver: "Esteban Ocon", Team: "Haas", Races: 26, Wins: 0, Podiums: 3, DNFs: 5, AvgQualiPos: 15.0, AvgRacePos: 14.2 },
+                { Driver: "Nico Hulkenberg", Team: "Sauber", Races: 26, Wins: 0, Podiums: 1, DNFs: 3, AvgQualiPos: 16.5, AvgRacePos: 15.5 },
+                { Driver: "Gabriel Bortoleto", Team: "Sauber", Races: 26, Wins: 0, Podiums: 2, DNFs: 1, AvgQualiPos: 17.0, AvgRacePos: 16.0 },
+                { Driver: "Alex Albon", Team: "Williams", Races: 26, Wins: 0, Podiums: 2, DNFs: 4, AvgQualiPos: 18.5, AvgRacePos: 17.5 },
+                { Driver: "Carlos Sainz", Team: "Williams", Races: 26, Wins: 2, Podiums: 8, DNFs: 0, AvgQualiPos: 6.5, AvgRacePos: 6.0 },
+                { Driver: "Isack Hadjar", Team: "Racing Bulls", Races: 26, Wins: 0, Podiums: 4, DNFs: 1, AvgQualiPos: 14.0, AvgRacePos: 13.0 },
+            ];
+        }
+
+        function cleanF1Data(data) {
+            return data.map(driver => {
+                const races = driver.Races;
+                
+                // 1. Core Rates
+                const winRate = ((driver.Wins / races) * 100).toFixed(2);
+                const podiumRate = ((driver.Podiums / races) * 100).toFixed(2);
+                const dnfRate = ((driver.DNFs / races) * 100).toFixed(2);
+
+                // 2. Performance Scores (Scaled 0-100, lower position is better)
+                // Assuming 20 drivers, (21 - Position) scales from 1 to 20. Divide by 20 to get 0-1. Multiply by 100.
+                const qualiScore = (((21 - driver.AvgQualiPos) / 20) * 100).toFixed(2);
+                const racePaceScore = (((21 - driver.AvgRacePos) / 20) * 100).toFixed(2);
+
+                // 3. New Weighted Win Probability (Formula used in the formulas section)
+                // Weights: Win (0.4), Podium (0.3), Quali (0.15), Pace (0.15)
+                const winProbability = (
+                    0.4 * parseFloat(winRate) + 
+                    0.3 * parseFloat(podiumRate) +
+                    0.15 * parseFloat(qualiScore) + 
+                    0.15 * parseFloat(racePaceScore)
+                ).toFixed(2);
+
+                return {
+                    ...driver,
+                    "Win Rate (%)": parseFloat(winRate),
+                    "Podium Rate (%)": parseFloat(podiumRate),
+                    "DNF (%)": parseFloat(dnfRate),
+                    "Qualifying Score": parseFloat(qualiScore),
+                    "Race Pace Score": parseFloat(racePaceScore),
+                    "Win Probability (%)": parseFloat(winProbability),
+                };
+            });
+        }
+
+        function analyzeData(data) {
+            // Sort by Win Rate to determine Top 5 for the list display
+            return data.slice().sort((a, b) => b["Win Rate (%)"] - a["Win Rate (%)"]).slice(0, 5);
+        }
+
+        // =====================================================================
+        // INTERACTIVITY & HIGHLIGHTING LOGIC
+        // =====================================================================
+
+        function highlightDriver(driverName) {
+            // Toggle highlight state: If the same driver is clicked, un-highlight them
+            highlightedDriver = (highlightedDriver === driverName) ? null : driverName;
+            
+            // Re-render everything that depends on the highlight state
+            populateMetricsTable(allAnalyzedData); // Update table highlighting
+            renderCharts(); // Update chart highlighting
+
+            // Smoothly scroll down to the visualization section
+            const visualizationSection = document.getElementById('visualization-section');
+            if (visualizationSection) {
+                visualizationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        // =====================================================================
+        // TEAM COLOR HELPER
+        // =====================================================================
+
+        function getTeamColorClass(team) {
+            // Custom colors based on F1 teams using Tailwind classes
+            const currentTheme = document.body.getAttribute('data-theme');
+            switch(team) {
+                case "Red Bull":
+                    return "text-blue-400"; // Red Bull Blue (Slightly lighter for visibility)
+                case "McLaren":
+                    return "text-orange-500"; // McLaren Papaya Orange
+                case "Ferrari":
+                    return "text-red-600"; // Ferrari Red
+                case "Mercedes":
+                    return "text-cyan-400"; // Mercedes Teal/Cyan
+                case "Aston Martin":
+                    return "text-green-500"; // Aston Martin Racing Green
+                case "Racing Bulls":
+                    return "text-violet-400"; // Racing Bulls (VCARB)
+                case "Alpine":
+                    return "text-pink-500"; // Alpine Pink/Blue accent (pink chosen for contrast)
+                case "Haas":
+                    // Use a strong white/black for better contrast on names
+                    return currentTheme === 'dark' ? 'text-white' : 'text-gray-900'; 
+                case "Sauber":
+                    return "text-emerald-400"; // Sauber (Green/Blue accent)
+                case "Williams":
+                    return "text-sky-300"; // Williams (Sky Blue)
+                default:
+                    return currentTheme === 'dark' ? 'text-gray-100' : 'text-gray-900';
+            }
+        }
+
+
+        // =====================================================================
+        // DOM POPULATION
+        // =====================================================================
+
+        function populateMetricsTable(data) {
+            const tableBody = document.querySelector('#metrics-table tbody');
+            tableBody.innerHTML = '';
+            // Sort by Predicted Win Probability for the main table
+            const sortedData = [...data].sort((a, b) => b["Win Probability (%)"] - a["Win Probability (%)"]);
+            
+            sortedData.forEach(driver => {
+                const row = document.createElement('tr');
+                
+                // Set click listener and data attribute
+                row.setAttribute('data-driver', driver.Driver);
+                row.onclick = () => highlightDriver(driver.Driver);
+                
+                // Apply highlight class if necessary
+                if (driver.Driver === highlightedDriver) {
+                    row.classList.add('highlighted');
+                } else {
+                    row.classList.remove('highlighted');
+                }
+
+                // Get team color class for highlighting the name
+                const teamColorClass = getTeamColorClass(driver.Team);
+
+                // Ensure the driver name is explicitly bold and colored
+                row.innerHTML = `
+                    <td class="font-extrabold ${teamColorClass} text-base">${driver.Driver}</td>
+                    <td class="text-gray-400">${driver.Team}</td>
+                    <td>${driver.Wins}</td>
+                    <td>${driver.Podiums}</td>
+                    <td>${driver["DNF (%)"]}%</td>
+                    <td>${driver["Qualifying Score"].toFixed(1)}</td>
+                    <td>${driver["Race Pace Score"].toFixed(1)}</td>
+                    <td class="text-red-500 font-bold">${driver["Win Probability (%)"]}%</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        function populateTop5List(top5) {
+            const list = document.getElementById('top-5-list');
+            list.innerHTML = '';
+            top5.forEach((driver, index) => {
+                const listItem = document.createElement('li');
+                
+                const teamColorClass = getTeamColorClass(driver.Team);
+
+                // Set base class for the list item (controls padding/border/size, but not the primary color)
+                let sizeClass = 'text-base';
+                if (index === 0) sizeClass = 'text-lg'; 
+                
+                listItem.className = `p-1 border-b border-gray-700 last:border-b-0 ${sizeClass}`;
+                
+                // Apply the bold, colored styling only to the driver's name for maximum contrast
+                listItem.innerHTML = `
+                    <span class="font-extrabold ${teamColorClass}">
+                        ${driver.Driver}
+                    </span> 
+                    <span class="text-gray-400">
+                        (${driver.Team}) - <span class="text-sm font-normal">${driver["Win Rate (%)"]}% Win Rate</span>
+                    </span>
+                `;
+                list.appendChild(listItem);
+            });
+        }
+
+        // =====================================================================
+        // D3.js CHARTING FUNCTIONS
+        // =====================================================================
+
+        // Helper function to update D3 visual elements based on theme
+        function getD3Colors() {
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            themeColors = {
+                textColor: isDark ? '#d1d5db' : '#1f2937',
+                axisColor: isDark ? '#4b5563' : '#d1d5db',
+                gridColor: isDark ? '#374151' : '#e5e7eb',
+                primaryColor: isDark ? '#e10600' : '#e10600', // F1 Red
+                secondaryColor: isDark ? '#ff6600' : '#ff6600', // F1 Orange (Used for highlight)
+                tertiaryColor: isDark ? '#4c82fb' : '#1d4ed8', // Blue for scatter/bubble
+                dnfColor: '#888',
+                tooltipBg: isDark ? '#2a2a33' : '#ffffff',
+                tooltipBorder: isDark ? '#4b5563' : '#9ca3af',
+                highlightStroke: isDark ? 'white' : 'black', // Distinct stroke for highlight
+            };
+            tooltip.style('background-color', themeColors.tooltipBg).style('color', themeColors.textColor).style('border-color', themeColors.tooltipBorder);
+        }
+
+        function createChartBase(containerId, margin) {
+            const container = d3.select(containerId);
+            const bounds = container.node().getBoundingClientRect();
+            const width = bounds.width - margin.left - margin.right;
+            const height = bounds.height - margin.top - margin.bottom;
+
+            container.html(''); // Clear previous
+            const svg = container.append("svg")
+                .attr("width", bounds.width)
+                .attr("height", bounds.height)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            return { svg, width, height };
+        }
+
+        /**
+         * 1. Creates the Win Rates Bar Chart (All 20)
+         */
+        function createWinRatesChart(data, containerId) {
+            getD3Colors();
+            // Include ALL drivers and sort by Win Rate
+            const chartData = data.slice().sort((a, b) => b['Win Rate (%)'] - a['Win Rate (%)']);
+            
+            const margin = { top: 20, right: 20, bottom: 80, left: 40 };
+            const { svg, width, height } = createChartBase(containerId, margin);
+
+            const x = d3.scaleBand().domain(chartData.map(d => d.Driver)).range([0, width]).padding(0.2);
+            const y = d3.scaleLinear().domain([0, d3.max(chartData, d => d['Win Rate (%)']) * 1.05]).range([height, 0]);
+
+            // Add X axis
+            svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(x))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor)
+                .attr("transform", "translate(-10,0)rotate(-45)").style("text-anchor", "end");
+
+            // Add Y axis
+            svg.append("g").call(d3.axisLeft(y).ticks(5))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor);
+
+            // Add Y-axis gridlines
+            svg.append("g").attr("class", "gridline").call(d3.axisLeft(y).ticks(5).tickSize(-width).tickFormat(""))
+                .selectAll("line").attr("stroke", themeColors.gridColor);
+
+            // Add Bars
+            svg.selectAll("rect").data(chartData).enter().append("rect")
+                .attr("x", d => x(d.Driver)).attr("y", d => y(d['Win Rate (%)']))
+                .attr("width", x.bandwidth()).attr("height", d => height - y(d['Win Rate (%)']))
+                // Interactivity logic for fill and stroke
+                .attr("fill", d => d.Driver === highlightedDriver ? themeColors.secondaryColor : themeColors.primaryColor)
+                .attr("stroke", d => d.Driver === highlightedDriver ? themeColors.highlightStroke : "none")
+                .attr("stroke-width", d => d.Driver === highlightedDriver ? 3 : 0)
+                .attr("opacity", d => d.Driver === highlightedDriver ? 1.0 : 0.8)
+                .on("mouseover", (event, d) => {
+                    tooltip.style("opacity", 1).html(`<strong>${d.Driver}</strong><br>${d['Win Rate (%)']}% Win Rate`);
+                })
+                .on("mousemove", (event) => {
+                    tooltip.style("left", (event.pageX + 10) + "px").style("top", (event.pageY - 28) + "px");
+                }).on("mouseout", () => {
+                    tooltip.style("opacity", 0);
+                });
+        }
+
+        /**
+         * 2. Creates the Win Probabilities Line Chart (All 20)
+         */
+        function createWinProbabilitiesChart(data, containerId) {
+            getD3Colors();
+            // Include ALL drivers and sort by Win Probability
+            const chartData = [...data].sort((a, b) => b['Win Probability (%)'] - a['Win Probability (%)']);
+            
+            const margin = { top: 20, right: 20, bottom: 80, left: 40 };
+            const { svg, width, height } = createChartBase(containerId, margin);
+
+            const x = d3.scaleBand().domain(chartData.map(d => d.Driver)).range([0, width]).padding(0.2);
+            const y = d3.scaleLinear().domain([0, d3.max(chartData, d => d['Win Probability (%)']) * 1.05]).range([height, 0]);
+
+            // Add X axis
+            svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(x))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor)
+                .attr("transform", "translate(-10,0)rotate(-45)").style("text-anchor", "end");
+
+            // Add Y axis
+            svg.append("g").call(d3.axisLeft(y).ticks(5))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor);
+                
+            // Add Y-axis gridlines
+            svg.append("g").attr("class", "gridline").call(d3.axisLeft(y).ticks(5).tickSize(-width).tickFormat(""))
+                .selectAll("line").attr("stroke", themeColors.gridColor);
+
+            // Add the line
+            const line = d3.line().x(d => x(d.Driver) + x.bandwidth() / 2).y(d => y(d['Win Probability (%)']));
+
+            svg.append("path").datum(chartData).attr("fill", "none").attr("stroke", themeColors.primaryColor)
+                .attr("stroke-width", 2.5).attr("d", line);
+
+            // Add points for tooltip and highlighting
+            svg.selectAll(".dot").data(chartData).enter().append("circle")
+                .attr("cx", d => x(d.Driver) + x.bandwidth() / 2).attr("cy", d => y(d['Win Probability (%)']))
+                // Interactivity logic for fill and size
+                .attr("r", d => d.Driver === highlightedDriver ? 7 : 4) 
+                .attr("fill", d => d.Driver === highlightedDriver ? themeColors.secondaryColor : themeColors.primaryColor)
+                .attr("stroke", d => d.Driver === highlightedDriver ? themeColors.highlightStroke : themeColors.primaryColor)
+                .attr("stroke-width", d => d.Driver === highlightedDriver ? 2 : 1)
+                .on("mouseover", (event, d) => {
+                    tooltip.style("opacity", 1).html(`<strong>${d.Driver}</strong><br>${d['Win Probability (%)']}% Probability`);
+                })
+                .on("mousemove", (event) => {
+                    tooltip.style("left", (event.pageX + 10) + "px").style("top", (event.pageY - 28) + "px");
+                }).on("mouseout", () => {
+                    tooltip.style("opacity", 0);
+                });
+        }
+        
+        /**
+         * 3. Creates the DNF Rate Comparison Bar Chart (All 20)
+         */
+        function createDNFRatesChart(data, containerId) {
+            getD3Colors();
+            // Include ALL drivers and sort by DNF%
+            const chartData = data.slice().sort((a, b) => b['DNF (%)'] - a['DNF (%)']);
+            
+            const margin = { top: 20, right: 20, bottom: 80, left: 40 };
+            const { svg, width, height } = createChartBase(containerId, margin);
+
+            const x = d3.scaleBand().domain(chartData.map(d => d.Driver)).range([0, width]).padding(0.2);
+            const y = d3.scaleLinear().domain([0, d3.max(chartData, d => d['DNF (%)']) * 1.05]).range([height, 0]);
+
+            // Add X axis
+            svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(x))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor)
+                .attr("transform", "translate(-10,0)rotate(-45)").style("text-anchor", "end");
+
+            // Add Y axis
+            svg.append("g").call(d3.axisLeft(y).ticks(5))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor);
+
+            // Add Y-axis gridlines
+            svg.append("g").attr("class", "gridline").call(d3.axisLeft(y).ticks(5).tickSize(-width).tickFormat(""))
+                .selectAll("line").attr("stroke", themeColors.gridColor);
+
+            // Add Bars
+            svg.selectAll("rect").data(chartData).enter().append("rect")
+                .attr("x", d => x(d.Driver)).attr("y", d => y(d['DNF (%)']))
+                .attr("width", x.bandwidth()).attr("height", d => height - y(d['DNF (%)']))
+                // Interactivity logic for fill and stroke
+                .attr("fill", d => d.Driver === highlightedDriver ? themeColors.secondaryColor : themeColors.dnfColor)
+                .attr("stroke", d => d.Driver === highlightedDriver ? themeColors.highlightStroke : "none")
+                .attr("stroke-width", d => d.Driver === highlightedDriver ? 3 : 0)
+                .attr("opacity", d => d.Driver === highlightedDriver ? 1.0 : 0.8)
+                .on("mouseover", (event, d) => {
+                    tooltip.style("opacity", 1).html(`<strong>${d.Driver}</strong><br>${d['DNF (%)']}% DNF Rate`);
+                })
+                .on("mousemove", (event) => {
+                    tooltip.style("left", (event.pageX + 10) + "px").style("top", (event.pageY - 28) + "px");
+                }).on("mouseout", () => {
+                    tooltip.style("opacity", 0);
+                });
+        }
+
+        /**
+         * 4. Creates the Metric Comparison Scatter Plot (Qualifying vs Pace)
+         */
+        function createMetricComparisonChart(data, containerId) {
+            getD3Colors();
+            const chartData = data;
+            
+            // INCREASED BOTTOM MARGIN for better label separation
+            const margin = { top: 20, right: 20, bottom: 80, left: 50 }; 
+            const { svg, width, height } = createChartBase(containerId, margin);
+
+            // X scale (Linear for Race Pace Score)
+            const x = d3.scaleLinear().domain([0, d3.max(chartData, d => d['Race Pace Score']) * 1.05]).range([0, width]);
+
+            // Y scale (Linear for Qualifying Score)
+            const y = d3.scaleLinear().domain([0, d3.max(chartData, d => d['Qualifying Score']) * 1.05]).range([height, 0]);
+
+            // Add X axis
+            svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(x).ticks(5))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor);
+
+            // Add X axis label
+            svg.append("text").attr("class", "axis-title").attr("fill", themeColors.textColor)
+                .attr("transform", `translate(${width/2}, ${height + margin.top + 20})`).text("Race Pace Score (Better →)");
+
+            // Add Y axis
+            svg.append("g").call(d3.axisLeft(y).ticks(5))
+                .selectAll("text").attr("class", "axis-label").attr("fill", themeColors.textColor);
+
+            // Add Y axis label
+            svg.append("text").attr("class", "axis-title").attr("fill", themeColors.textColor)
+                .attr("transform", "rotate(-90)").attr("y", 0 - margin.left + 10).attr("x", 0 - (height / 2))
+                .text("Qualifying Score (Better ↑)");
+                
+            // Add Y-axis gridlines
+            svg.append("g").attr("class", "gridline").call(d3.axisLeft(y).ticks(5).tickSize(-width).tickFormat(""))
+                .selectAll("line").attr("stroke", themeColors.gridColor);
+
+            // Add dots (Bubbles: size based on Win Probability)
+            const size = d3.scaleLinear().domain([0, d3.max(chartData, d => d['Win Probability (%)'])]).range([4, 15]);
+
+            svg.selectAll(".dot").data(chartData).enter().append("circle")
+                .attr("cx", d => x(d['Race Pace Score']))
+                .attr("cy", d => y(d['Qualifying Score']))
+                // Interactivity logic for fill, stroke and size
+                .attr("r", d => d.Driver === highlightedDriver ? 12 : size(d['Win Probability (%)'])) // Larger radius if highlighted
+                .attr("fill", d => d.Driver === highlightedDriver ? themeColors.secondaryColor : themeColors.tertiaryColor)
+                .attr("stroke", d => d.Driver === highlightedDriver ? themeColors.highlightStroke : themeColors.textColor)
+                .attr("stroke-width", d => d.Driver === highlightedDriver ? 3 : 1)
+                .attr("opacity", d => d.Driver === highlightedDriver ? 1.0 : 0.7)
+                .on("mouseover", (event, d) => {
+                    tooltip.style("opacity", 1)
+                           .html(`<strong>${d.Driver} (${d.Team})</strong><br>
+                                  Quali Score: ${d['Qualifying Score'].toFixed(1)}<br>
+                                  Pace Score: ${d['Race Pace Score'].toFixed(1)}<br>
+                                  Prob: ${d['Win Probability (%)']}%`);
+                })
+                .on("mousemove", (event) => {
+                    tooltip.style("left", (event.pageX + 10) + "px").style("top", (event.pageY - 28) + "px");
+                }).on("mouseout", () => {
+                    tooltip.style("opacity", 0);
+                });
+        }
+
+
+        // =====================================================================
+        // THEME SWITCHING LOGIC
+        // =====================================================================
+        function updateThemeStyles(theme) {
+            const isDark = theme === 'dark';
+            document.body.setAttribute('data-theme', theme);
+            
+            // Update button text/icon to show the NEXT theme state (the one it will switch TO)
+            const themeIcon = document.getElementById('theme-icon');
+            const themeText = document.getElementById('theme-text');
+            const themeToggle = document.getElementById('theme-toggle');
+            const f1LinkButton = document.getElementById('f1-link-button');
+
+
+            if (isDark) { 
+                // Current state is DARK, button should offer LIGHT mode (Sun icon)
+                themeIcon.textContent = '☀️';
+                themeText.textContent = 'Light Mode';
+                themeToggle.classList.remove('bg-gray-800', 'text-white', 'hover:bg-gray-700');
+                themeToggle.classList.add('bg-white', 'text-gray-800', 'hover:bg-gray-100');
+                f1LinkButton.classList.remove('bg-gray-700');
+                f1LinkButton.classList.add('bg-gray-900');
+            } else { 
+                // Current state is LIGHT, button should offer DARK mode (Moon icon)
+                themeIcon.textContent = '🌙';
+                themeText.textContent = 'Dark Mode';
+                themeToggle.classList.remove('bg-white', 'text-gray-800', 'hover:bg-gray-100');
+                themeToggle.classList.add('bg-gray-800', 'text-white', 'hover:bg-gray-700');
+                f1LinkButton.classList.remove('bg-gray-900');
+                f1LinkButton.classList.add('bg-gray-700');
+            }
+            
+            // Re-render D3 charts to pick up new colors and update highlighting
+            renderCharts();
+            // Re-populate list and table to update text colors and highlighting style
+            populateMetricsTable(allAnalyzedData);
+            populateTop5List(top5DriversData); 
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.body.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            updateThemeStyles(newTheme);
+        }
+        
+        // =====================================================================
+        // MAIN EXECUTION
+        // =====================================================================
+        
+        function renderCharts() {
+             // --- Render D3 Charts ---
+            createWinRatesChart(allAnalyzedData, '#win-rates-chart-container');
+            createWinProbabilitiesChart(allAnalyzedData, '#win-probabilities-chart-container');
+            createMetricComparisonChart(allAnalyzedData, '#metric-comparison-chart-container');
+            createDNFRatesChart(allAnalyzedData, '#dnf-rates-chart-container');
+        }
+
+        function initDashboard() {
+            const rawData = createF1Dataset();
+            allAnalyzedData = cleanF1Data(rawData); // Store for global use
+            
+            // Analyze and populate the Top 5 list
+            top5DriversData = analyzeData(allAnalyzedData); // Store for global use
+
+            // Setup theme toggle listener
+            document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+            
+            // Set initial state and trigger initial rendering and population
+            // Initialize with 'dark' theme (or 'light' if preferred by the browser/system, but we default to dark)
+            updateThemeStyles(document.body.getAttribute('data-theme') || 'dark');
+            
+            // Re-draw charts on window resize (debounce for responsiveness)
+            let resizeTimer;
+            window.onresize = () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(renderCharts, 250); // Wait 250ms after resize ends
+            };
+        }
+
+        // Run the initialization when the window loads
+        window.onload = initDashboard;
+    </script>
+
+</body>
+</html>
